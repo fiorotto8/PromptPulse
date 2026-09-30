@@ -56,7 +56,7 @@ Charts change theme immediately without resetting the selected time range.
 - Python 3.8+ at `/usr/bin/python3`, with SQLite 3.24+ support.
 - systemd and a normal login account for the supplied installer/service.
 - Connected Tailscale for the default network mode, or an explicit private LAN IPv4.
-- Optional: `nvidia-smi` from an existing NVIDIA driver for GPU telemetry.
+- Optional: `nvidia-smi` from an existing NVIDIA driver, or `tegrastats` on Jetson.
 
 A host without an NVIDIA GPU still collects CPU, memory, storage, and network data.
 Unsupported readings appear as `—`, not zero.
@@ -114,6 +114,7 @@ See [config.example.json](config.example.json) for every supported setting.
 | `storage_path` | `/` | Monitor another filesystem; use an absolute path |
 | `network_interfaces` | `[]` | Override automatic selection, e.g. `["enp5s0"]` |
 | `nvidia_smi_path` | `auto` | An NVIDIA executable needs an explicit path |
+| `tegrastats_path` | `auto` | A Jetson executable needs an explicit path |
 | `gpu_index` | `0` | Monitor another available NVIDIA GPU |
 | `database` | `data/monitor.db` | Keep this for the supplied service |
 | `interval_seconds` | `5` | Sampling interval in seconds |
@@ -123,6 +124,21 @@ Host metrics include total/per-core CPU use, CPU frequency and temperature when
 available, RAM/swap, load, uptime, filesystem capacity and block I/O, physical
 network and Tailscale traffic, and fan sensors. GPU metrics include utilization,
 memory-controller activity, VRAM, temperature, power, clocks, fan, and driver details.
+
+When `nvidia-smi` cannot provide telemetry, GPU index `0` automatically falls back
+to an installed `tegrastats`. Its managed child samples at the configured interval;
+missing tools, permissions, and stale output leave host monitoring available.
+The dashboard and `details.gpu_telemetry` report the selected source's status;
+the existing `details.nvidia_smi` status is preserved.
+
+Jetson readings follow [NVIDIA's tegrastats field definitions](https://docs.nvidia.com/jetson/archives/r36.5/DeveloperGuide/AT/JetsonLinuxDevelopmentTools/TegrastatsUtility.html):
+GPU load, the highest reported GPC clock, valid temperatures, and dedicated GPU
+power rails populate equivalent metrics. A discovered GPU devfreq sensor supplies
+the clock if omitted by the tool. Shared RAM, system EMC activity, and combined
+power rails do not populate VRAM, GPU memory activity, or GPU-only power fields.
+EMC and power-rail readings remain in sample details; unsupported metrics show `—`.
+The setup prompt also directs coding agents to discover other installed sources
+and add small, tested readers when needed, preserving the schema and dependencies.
 
 History supports range presets, custom ranges, pan, drag-to-zoom, Ctrl+wheel zoom,
 and reset. Long ranges retain mean/minimum/maximum values so peaks remain visible.

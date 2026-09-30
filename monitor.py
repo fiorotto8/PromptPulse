@@ -39,7 +39,7 @@ DEFAULTS = {
     "bind": "tailscale", "port": 8765, "interval_seconds": 5,
     "retention_days": 30, "storage_path": "/",
     "database": "data/monitor.db", "network_interfaces": [],
-    "nvidia_smi_path": "auto", "gpu_index": 0,
+    "nvidia_smi_path": "auto", "tegrastats_path": "auto", "gpu_index": 0,
 }
 # Values are SI base units, except percentages, MHz and temperatures in Celsius.
 METRICS = {
@@ -104,7 +104,7 @@ def config_load(path):
         for x in cfg["network_interfaces"]
     ):
         raise ValueError("network_interfaces must contain interface names")
-    for key in ("database", "storage_path", "nvidia_smi_path", "bind"):
+    for key in ("database", "storage_path", "nvidia_smi_path", "tegrastats_path", "bind"):
         if not isinstance(cfg[key], str) or not cfg[key]:
             raise ValueError("Invalid configuration value: " + key)
     validate_bind(cfg["bind"])
@@ -197,6 +197,138 @@ class NvidiaReader:
         except Exception as exc:
             return {}, {"available": False, "message": "Cannot parse nvidia-smi output: %s" % exc}
         return parsed, {"available": True, "message": "Reading nvidia-smi"}
+
+
+def parse_tegrastats(line):
+    """Map equivalent Jetson readings only; shared RAM/EMC are not GPU VRAM."""
+    result = {}
+    for token, name in (("GR3D_FREQ", "gpu"), ("EMC_FREQ", "emc")):
+        match = re.search(r"\b" + token + r"\s+(?:(\d+(?:\.\d+)?)%)?(?:@(?:\[([^\]]+)\]|(\d+(?:\.\d+)?)))?", line)
+        if not match:
+            continue
+        if match[1] is not None and 0 <= float(match[1]) <= 100:
+            result[name + "_percent"] = float(match[1])
+        clocks = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", match[2] or match[3] or "")]
+        if clocks:
+            result[name + "_freq_mhz"] = max(clocks)
+    temperatures = {name: float(v) for name, v in re.findall(r"\b([\w-]+)@(-?\d+(?:\.\d+)?)C\b", line)
+                    if -40 <= float(v) <= 150}
+    result["temperatures"] = temperatures
+    for token in ("cpu", "gpu"):
+        values = [v for k, v in temperatures.items() if k.lower().startswith(token)]
+        if values:
+            result[token + "_temp_c"] = max(values)
+    rails = {name: float(value) / (1 if unit == "W" else 1000)
+             for name, value, unit in re.findall(
+                 r"\b((?:VDD|VIN|POM)_[\w]+)\s+(\d+(?:\.\d+)?)(mW|W)?/\d+(?:\.\d+)?(?:mW|W)?", line)}
+    result["power_rails_w"] = rails
+    # Combined CPU/GPU and whole-device rails must not populate GPU power.
+    for name in ("VDD_GPU", "POM_5V_GPU"):
+        if name in rails:
+            result["gpu_power_w"] = rails[name]
+            break
+    return result
+
+
+class TegraReader:
+    """Optional streaming reader with bounded waits and one owned child process."""
+    def __init__(self, cfg, stop):
+        self.cfg, self.stop = cfg, stop
+        path = cfg["tegrastats_path"]
+        self.path = shutil.which("tegrastats") if path == "auto" else path
+        self.lock = threading.Lock()
+        self.last, self.updated = {}, None
+        self.error = "Waiting for tegrastats"
+        self.thread = threading.Thread(target=self.run, name="tegrastats-reader", daemon=True)
+
+    def sample(self):
+        if self.cfg["gpu_index"] != 0 or not self.path:
+            return {}, {"available": False, "message": "tegrastats unavailable for this GPU; host metrics remain available"}
+        if self.thread.ident is None and not self.stop.is_set():
+            self.thread.start()
+        with self.lock:
+            age = time.monotonic() - self.updated if self.updated is not None else None
+            fresh = age is not None and age <= max(15, 2.5 * self.cfg["interval_seconds"])
+            values = copy.deepcopy(self.last) if fresh else {}
+            status = {"available": fresh, "age_seconds": round(age, 1) if age is not None else None,
+                      "message": "Reading tegrastats" if fresh else self.error or "tegrastats sample is stale"}
+        if fresh:
+            values["gpu_name"] = "Jetson integrated GPU"
+        if fresh and "gpu_freq_mhz" not in values:
+            # Some JetPack versions omit clocks from unprivileged tegrastats.
+            # Identify the GPU by its driver, never by a host-specific bus address.
+            paths = []
+            for path in glob.glob("/sys/class/devfreq/*"):
+                try:
+                    if (Path(path) / "device/driver").resolve().name in ("gk20a", "nvgpu"):
+                        paths.append(Path(path))
+                except (OSError, RuntimeError):
+                    continue  # Inaccessible or broken sensors must not stop sampling.
+            if len(paths) == 1:
+                raw = read_text(paths[0] / "cur_freq")
+                if raw.isdigit():
+                    values["gpu_freq_mhz"] = int(raw) / 1000000
+        return values, status
+
+    def close(self):
+        self.stop.set()
+        if self.thread.ident is not None:
+            self.thread.join(timeout=8)
+
+    def run(self):
+        while not self.stop.is_set():
+            proc = None
+            master = slave = None
+            try:
+                # A PTY avoids tool-side buffering when stdout is not a terminal.
+                master, slave = pty.openpty()
+                proc = subprocess.Popen([self.path, "--interval", str(int(self.cfg["interval_seconds"] * 1000))],
+                                        stdout=slave, stderr=slave, stdin=subprocess.DEVNULL,
+                                        close_fds=True, start_new_session=True)
+                os.close(slave)
+                slave = None
+                buf = b""
+                last_line = time.monotonic()
+                while not self.stop.is_set():
+                    if time.monotonic() - last_line > max(30, 4 * self.cfg["interval_seconds"]):
+                        raise RuntimeError("tegrastats stopped producing readable samples")
+                    if not select.select([master], [], [], 1)[0]:
+                        if proc.poll() is not None:
+                            raise RuntimeError("tegrastats exited (code %s)" % proc.returncode)
+                        continue
+                    chunk = os.read(master, 16384)
+                    if not chunk:
+                        raise RuntimeError("tegrastats output ended")
+                    buf = (buf + chunk)[-65536:]
+                    while b"\n" in buf:
+                        raw, buf = buf.split(b"\n", 1)
+                        line = raw.decode("utf-8", "replace").strip()
+                        if not re.search(r"\b(?:RAM\s+\d+/\d+|GR3D_FREQ\s)", line):
+                            if line:
+                                with self.lock:
+                                    self.error = line[:200]
+                            continue
+                        parsed = parse_tegrastats(line)
+                        last_line = time.monotonic()
+                        with self.lock:
+                            self.last, self.updated, self.error = parsed, last_line, ""
+            except (OSError, ValueError, RuntimeError) as exc:
+                with self.lock:
+                    self.last, self.updated, self.error = {}, None, "tegrastats failed: %s" % exc
+                LOG.warning("Optional telemetry: %s", self.error)
+            finally:
+                if proc is not None:
+                    if proc.poll() is None:
+                        proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=3)
+                for fd in (master, slave):
+                    if fd is not None:
+                        os.close(fd)
+            self.stop.wait(10)
 
 
 def cpu_ticks():
@@ -448,10 +580,11 @@ class Application:
         self.latest = self.store.last()
         self.error = None
         self.nvidia = NvidiaReader(cfg)
+        self.tegra = TegraReader(cfg, self.stop)
         self.linux = LinuxReader(cfg)
         self.meta = {
             "hostname": socket.gethostname(),
-            "model": (" ".join(x for x in (read_text("/sys/class/dmi/id/sys_vendor"), read_text("/sys/class/dmi/id/product_name")) if x).strip() or "Linux PC"),
+            "model": (" ".join(x for x in (read_text("/sys/class/dmi/id/sys_vendor"), read_text("/sys/class/dmi/id/product_name")) if x).strip() or read_text("/proc/device-tree/model") or "Linux host"),
             "interval_seconds": cfg["interval_seconds"], "retention_days": cfg["retention_days"],
             "storage_path": cfg["storage_path"], "port": cfg["port"],
         }
@@ -459,11 +592,20 @@ class Application:
     def collect(self):
         metrics, details = self.linux.sample()
         gpu, status = self.nvidia.sample()
+        details["nvidia_smi"] = status
+        source = "nvidia-smi"
+        if not status["available"]:
+            gpu, fallback = self.tegra.sample()
+            details["tegrastats"] = fallback
+            source = "tegrastats"
+            status = dict(fallback)
+            if not status["available"]:
+                status["message"] = details["nvidia_smi"]["message"] + "; " + fallback["message"]
         for key in METRICS:
             if key in gpu:
                 metrics[key] = gpu[key]
         details.update({k: v for k, v in gpu.items() if k not in METRICS})
-        details["nvidia_smi"] = status
+        details["gpu_telemetry"] = dict(status, source=source if status["available"] else None)
         metrics = {k: round(v, 4) if finite(v) else None for k, v in metrics.items()}
         return {"timestamp": time.time(), "metrics": metrics, "details": details}
 
@@ -488,6 +630,7 @@ class Application:
                 self.stop.wait(max(0.1, self.cfg["interval_seconds"] - (time.monotonic() - started)))
         finally:
             conn.close()
+            self.tegra.close()
 
     def current(self):
         with self.lock:
@@ -658,7 +801,7 @@ def main():
             app.stop.wait(cfg["interval_seconds"] + 1)
             print(json.dumps({"meta": app.meta, "sample": app.collect()}, indent=2, allow_nan=False))
         finally:
-            app.stop.set()
+            app.tegra.close()
         return
     worker = threading.Thread(target=app.sample_loop, name="sampler", daemon=True)
     worker.start()

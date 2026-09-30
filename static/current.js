@@ -28,7 +28,7 @@
     meter("ram-meter", ramPercent);
     text("ram-note", `${gib(m.ram_total_bytes)} total · ${number(ramPercent, 0)}% in use`);
     text("gpu-note", d.gpu_name || "NVIDIA GPU");
-    text("power-note", has(m.gpu_power_limit_w) ? `${unit(m.gpu_power_w, "W")} / ${unit(m.gpu_power_limit_w, "W")} limit` : "Board power draw");
+    text("power-note", has(m.gpu_power_limit_w) ? `${unit(m.gpu_power_w, "W")} / ${unit(m.gpu_power_limit_w, "W")} limit` : "Reported GPU power");
     const cores = d.cpu_cores || [];
     text("cpu-note", `${cores.filter(c => c.online).length} online cores · ${unit(m.cpu_freq_mhz, "MHz", 0)} mean`);
     const fragment = document.createDocumentFragment();
@@ -62,8 +62,9 @@
     text("net-interfaces", (d.network_interfaces || []).join(" + ") || "No selected interface"); text("net-rx", rate(m.net_rx_bps)); text("net-tx", rate(m.net_tx_bps)); text("tail-rx", rate(m.tailscale_rx_bps)); text("tail-tx", rate(m.tailscale_tx_bps));
     const warnings = [];
     if (data.collector_error) warnings.push(`Collector error: ${data.collector_error}. Showing the last stored reading.`);
-    if (!d.nvidia_smi?.available) warnings.push(d.nvidia_smi?.message || "NVIDIA telemetry is unavailable.");
-    else if (!has(m.gpu_percent)) warnings.push("nvidia-smi is available but GPU utilization was not reported.");
+    const telemetry = d.gpu_telemetry || d.nvidia_smi;
+    if (!telemetry?.available) warnings.push(telemetry?.message || "GPU telemetry is unavailable.");
+    else if (!has(m.gpu_percent)) warnings.push("GPU utilization was not reported by the available telemetry source.");
     M.notice(warnings.join(" "));
     text("footer-sample", `Saved ${M.date(data.sample.timestamp)} · unavailable readings are —`);
   }

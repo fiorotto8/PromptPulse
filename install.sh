@@ -71,11 +71,18 @@ chown -R root:root "$BASE/static" "$BASE/tests"
 chown root:root "$BASE/monitor.py" "$BASE/config.example.json" "$BASE/promptpulse.service" "$BASE/README.md"
 chmod 0755 "$BASE/monitor.py"
 cd "$BASE"
-if command -v nvidia-smi >/dev/null; then
-  runuser -u "$RUN_USER" -- nvidia-smi -L >/dev/null || { echo 'The service user cannot query nvidia-smi; host metrics will still work, but fix GPU access if GPU metrics are expected.' >&2; }
-else
-  echo 'nvidia-smi not found; continuing with host-only metrics.'
-fi
+runuser -u "$RUN_USER" -- /usr/bin/python3 -B - <<'PYTOOLS'
+from pathlib import Path
+import shutil
+import threading
+from monitor import config_load, NvidiaReader, TegraReader
+c = config_load(Path('config.json'))
+readers = [('nvidia-smi', NvidiaReader(c)), ('tegrastats', TegraReader(c, threading.Event()))]
+found = [name for name, reader in readers if reader.path and shutil.which(reader.path)
+         and (name != 'tegrastats' or c['gpu_index'] == 0)]
+print('Optional GPU tools: ' + ', '.join(found) + '; verify actual readings in /api/current.'
+      if found else 'No supported GPU tool found; continuing with host-only metrics.')
+PYTOOLS
 if [[ -e "$UNIT" ]]; then
   cp -a -- "$UNIT" "$UNIT.bak.$(date +%Y%m%d-%H%M%S)"
 fi

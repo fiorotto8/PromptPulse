@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -16,6 +17,7 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 GPU_LINE = 'NVIDIA RTX PRO 6000 Blackwell Workstation Edition, GPU-abc, 580.82.07, 00000000:01:00.0, 96, 72, 48231, 97887, 61, 412.35, 600.00, 2385, 17501, 43, P2'
+TEGRA_LINE = 'RAM 1024/8192MB CPU [4%@1200] EMC_FREQ 12%@1600 GR3D_FREQ 42%@[306,612] CPU@46.5C GPU@-256C VDD_CPU_GPU_CV 4200mW/4000mW VDD_IN 8000/7000'
 
 
 def fixture(ts, **values):
@@ -25,6 +27,32 @@ def fixture(ts, **values):
 
 
 class ParserTests(unittest.TestCase):
+    def test_tegrastats_shared_metrics_and_invalid_sensor(self):
+        v = m.parse_tegrastats(TEGRA_LINE)
+        self.assertEqual(v['gpu_percent'], 42)
+        self.assertEqual(v['gpu_freq_mhz'], 612)
+        self.assertEqual(v['cpu_temp_c'], 46.5)
+        self.assertEqual(v['emc_percent'], 12)
+        self.assertEqual(v['emc_freq_mhz'], 1600)
+        self.assertEqual(v['power_rails_w']['VDD_CPU_GPU_CV'], 4.2)
+        self.assertEqual(v['power_rails_w']['VDD_IN'], 8)
+        for key in ('gpu_temp_c', 'gpu_power_w', 'gpu_memory_percent', 'gpu_memory_freq_mhz',
+                    'gpu_vram_used_bytes', 'gpu_vram_total_bytes', 'ram_used_bytes'):
+            self.assertNotIn(key, v)
+
+    def test_tegrastats_legacy_and_missing_fields(self):
+        v = m.parse_tegrastats('GR3D_FREQ 0%@318 GPU@37.5C POM_5V_GPU 554/600')
+        self.assertEqual(v['gpu_percent'], 0)
+        self.assertEqual(v['gpu_freq_mhz'], 318)
+        self.assertEqual(v['gpu_temp_c'], 37.5)
+        self.assertEqual(v['gpu_power_w'], .554)
+        self.assertEqual(m.parse_tegrastats('VDD_GPU 1.5W/2W')['gpu_power_w'], 1.5)
+        self.assertEqual(m.parse_tegrastats('GR3D_FREQ @[306,612]')['gpu_freq_mhz'], 612)
+        self.assertNotIn('gpu_percent', m.parse_tegrastats('GR3D_FREQ @[306,612]'))
+        self.assertNotIn('gpu_freq_mhz', m.parse_tegrastats('GR3D_FREQ 0%'))
+        self.assertNotIn('gpu_percent', m.parse_tegrastats('GR3D_FREQ 101%'))
+        self.assertFalse(set(m.METRICS) & set(m.parse_tegrastats('sensor unavailable')))
+
     def test_nvidia_csv(self):
         v = m.parse_nvidia_csv(GPU_LINE)
         self.assertEqual(v['gpu_name'], 'NVIDIA RTX PRO 6000 Blackwell Workstation Edition')
@@ -105,7 +133,180 @@ class NvidiaReaderTests(unittest.TestCase):
         self.assertIn('failed', status['message'])
 
 
+class TegraReaderTests(unittest.TestCase):
+    def test_missing_tool_and_nonzero_gpu(self):
+        for path, index in ((None, 0), ('/unused/tegrastats', 1)):
+            cfg = dict(m.DEFAULTS, gpu_index=index)
+            with mock.patch.object(m.shutil, 'which', return_value=path):
+                reader = m.TegraReader(cfg, threading.Event())
+            values, status = reader.sample()
+            self.assertFalse(status['available'])
+            self.assertEqual(values, {})
+            self.assertIsNone(reader.thread.ident)
+
+    def test_stale_snapshot_and_discovered_clock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            device = Path(tmp) / 'arbitrary-bus-address'
+            (device / 'device').mkdir(parents=True)
+            (device / 'device/driver').symlink_to(Path(tmp) / 'gk20a')
+            (device / 'cur_freq').write_text('306000000')
+            reader = m.TegraReader(dict(m.DEFAULTS, tegrastats_path='/unused'), threading.Event())
+            reader.stop.set()  # Inspect snapshots without launching a tool.
+            reader.last, reader.updated, reader.error = {'gpu_percent': 0}, time.monotonic(), ''
+            with mock.patch.object(m.glob, 'glob', return_value=[str(device)]):
+                values, status = reader.sample()
+                self.assertTrue(status['available'])
+                self.assertEqual(values['gpu_freq_mhz'], 306)
+                self.assertEqual(values['gpu_percent'], 0)
+                reader.last['gpu_freq_mhz'] = 612
+                self.assertEqual(reader.sample()[0]['gpu_freq_mhz'], 612)
+                reader.updated -= 60
+                values, status = reader.sample()
+                self.assertEqual(values, {})
+                self.assertFalse(status['available'])
+                self.assertIn('stale', status['message'])
+
+    def test_stream_and_owned_child_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = Path(tmp) / 'fake-tegrastats'
+            tool.write_text('#!' + sys.executable + '\nimport time\nprint(' + repr(TEGRA_LINE) + ', flush=True)\ntime.sleep(60)\n')
+            tool.chmod(0o700)
+            reader = m.TegraReader(dict(m.DEFAULTS, tegrastats_path=str(tool)), threading.Event())
+            popen = m.subprocess.Popen
+            children = []
+            def launch(*args, **kwargs):
+                child = popen(*args, **kwargs)
+                children.append(child)
+                return child
+            with mock.patch.object(m.subprocess, 'Popen', side_effect=launch) as start:
+                try:
+                    reader.sample()
+                    deadline = time.monotonic() + 3
+                    while reader.updated is None and time.monotonic() < deadline:
+                        time.sleep(.01)
+                    values, status = reader.sample()
+                    self.assertTrue(status['available'], status)
+                    self.assertEqual(values['gpu_percent'], 42)
+                    reader.sample()
+                    self.assertEqual(start.call_count, 1)
+                    self.assertEqual(start.call_args.args[0], [str(tool), '--interval', '5000'])
+                finally:
+                    reader.close()
+            self.assertFalse(reader.thread.is_alive())
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].returncode)
+
+    def test_inaccessible_or_ambiguous_clock_keeps_tool_readings(self):
+        reader = m.TegraReader(dict(m.DEFAULTS, tegrastats_path='/unused'), threading.Event())
+        reader.stop.set()
+        reader.last, reader.updated = {'gpu_percent': 42}, time.monotonic()
+        for error in (PermissionError('sensor inaccessible'), RuntimeError('symlink loop')):
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(m.glob, 'glob', return_value=['/sys/class/devfreq/example']), \
+                    mock.patch.object(Path, 'resolve', side_effect=error):
+                values, status = reader.sample()
+                self.assertTrue(status['available'])
+                self.assertEqual(values['gpu_percent'], 42)
+                self.assertNotIn('gpu_freq_mhz', values)
+        with mock.patch.object(m.glob, 'glob', return_value=['/gpu-a', '/gpu-b']), \
+                mock.patch.object(Path, 'resolve', return_value=Path('/drivers/gk20a')):
+            self.assertNotIn('gpu_freq_mhz', reader.sample()[0])
+
+    def test_stalled_tool_invalidates_sample_and_is_reaped(self):
+        reader = m.TegraReader(dict(m.DEFAULTS, tegrastats_path='/unused'), threading.Event())
+        reader.last, reader.updated = {'gpu_percent': 42}, 0
+        child = mock.Mock()
+        child.poll.return_value = None
+        child.wait.side_effect = [m.subprocess.TimeoutExpired('tegrastats', 3), 0]
+        with mock.patch.object(m.subprocess, 'Popen', return_value=child), \
+                mock.patch.object(m.time, 'monotonic', side_effect=[0, 31]), \
+                mock.patch.object(reader.stop, 'wait', side_effect=lambda _: reader.stop.set()), \
+                self.assertLogs(m.LOG, level='WARNING'):
+            reader.run()
+        self.assertEqual(reader.last, {})
+        self.assertIsNone(reader.updated)
+        self.assertIn('stopped producing', reader.error)
+        child.terminate.assert_called_once_with()
+        child.kill.assert_called_once_with()
+        self.assertEqual(child.wait.call_count, 2)
+
+    def test_permission_failure_does_not_escape_reader(self):
+        reader = m.TegraReader(dict(m.DEFAULTS, tegrastats_path='/not-executable'), threading.Event())
+        with mock.patch.object(m.subprocess, 'Popen', side_effect=PermissionError('permission denied')):
+            try:
+                with self.assertLogs(m.LOG, level='WARNING'):
+                    reader.sample()
+                    deadline = time.monotonic() + 3
+                    while 'failed' not in reader.error and time.monotonic() < deadline:
+                        time.sleep(.01)
+                values, status = reader.sample()
+                self.assertEqual(values, {})
+                self.assertFalse(status['available'])
+                self.assertIn('permission denied', status['message'])
+            finally:
+                reader.close()
+        self.assertFalse(reader.thread.is_alive())
+
+
+class CollectorTests(unittest.TestCase):
+    def test_host_only_without_gpu_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = dict(m.DEFAULTS, database=str(Path(tmp) / 'monitor.db'), storage_path=tmp,
+                       nvidia_smi_path='/definitely/not/here')
+            with mock.patch.object(m.shutil, 'which', return_value=None):
+                app = m.Application(cfg)
+            sample = app.collect()
+            self.assertGreater(sample['metrics']['ram_total_bytes'], 0)
+            self.assertGreater(sample['metrics']['disk_total_bytes'], 0)
+            self.assertIsNone(sample['metrics']['gpu_percent'])
+            self.assertIsNone(sample['metrics']['gpu_vram_total_bytes'])
+            self.assertFalse(sample['details']['gpu_telemetry']['available'])
+            self.assertIsNone(app.tegra.thread.ident)
+
+    def test_gpu_fallback_preserves_host_readings_and_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = dict(m.DEFAULTS, database=str(Path(tmp) / 'monitor.db'), storage_path=tmp)
+            app = m.Application(cfg)
+            host = {'ram_used_bytes': 123, 'gpu_vram_used_bytes': None, 'gpu_percent': None}
+            failed = {'available': False, 'message': 'tool missing'}
+            ready = {'available': True, 'message': 'reading'}
+            with mock.patch.object(app.linux, 'sample', return_value=(host, {})), \
+                    mock.patch.object(app.nvidia, 'sample', return_value=({}, failed)), \
+                    mock.patch.object(app.tegra, 'sample', return_value=(m.parse_tegrastats(TEGRA_LINE), ready)) as tegra:
+                sample = app.collect()
+                self.assertEqual(sample['metrics']['ram_used_bytes'], 123)
+                self.assertIsNone(sample['metrics']['gpu_vram_used_bytes'])
+                self.assertEqual(sample['metrics']['gpu_percent'], 42)
+                self.assertEqual(sample['details']['gpu_telemetry']['source'], 'tegrastats')
+                self.assertFalse(sample['details']['nvidia_smi']['available'])
+                self.assertTrue(sample['details']['gpu_telemetry']['available'])
+                tegra.return_value = ({}, failed)
+                app.linux.sample.return_value = ({'ram_used_bytes': 124, 'gpu_percent': None}, {})
+                sample = app.collect()
+                self.assertEqual(sample['metrics']['ram_used_bytes'], 124)
+                self.assertIsNone(sample['metrics']['gpu_percent'])
+                self.assertFalse(sample['details']['gpu_telemetry']['available'])
+            with mock.patch.object(app.nvidia, 'sample', return_value=(m.parse_nvidia_csv(GPU_LINE), ready)), \
+                    mock.patch.object(app.tegra, 'sample') as tegra:
+                sample = app.collect()
+                self.assertEqual(sample['metrics']['gpu_percent'], 96)
+                self.assertEqual(sample['details']['gpu_telemetry']['source'], 'nvidia-smi')
+                tegra.assert_not_called()
+
+
 class ConfigTests(unittest.TestCase):
+    def test_tegrastats_path_and_existing_config_compatibility(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'config.json'
+            path.write_text('{}')
+            self.assertEqual(m.config_load(path)['tegrastats_path'], 'auto')
+            path.write_text(json.dumps({'tegrastats_path': '/custom/tegrastats'}))
+            self.assertEqual(m.config_load(path)['tegrastats_path'], '/custom/tegrastats')
+            for invalid in ('', None, False):
+                path.write_text(json.dumps({'tegrastats_path': invalid}))
+                with self.assertRaises(ValueError):
+                    m.config_load(path)
+
     def test_unsafe_bind_rejected_during_config_load(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'config.json'

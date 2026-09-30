@@ -7,5 +7,6 @@
   "database": "data/monitor.db",
   "network_interfaces": [],
   "nvidia_smi_path": "auto",
+  "tegrastats_path": "auto",
   "gpu_index": 0
 }
