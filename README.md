@@ -35,9 +35,13 @@ the existing installer. No generated project scaffolding or agent-specific files
 Real measurements from one Linux/NVIDIA host; the hostname is anonymized.
 Available sensors and readings vary by machine.
 
-![Current host and GPU readings](docs/current-example.png)
+Use the **Light / Dark** switch in the top-right corner on either page. The first
+visit follows your system theme; your choice is remembered in this browser.
+Charts change theme immediately without resetting the selected time range.
 
-![History plots with real recorded measurements](docs/history-example.png)
+![Current host and GPU readings in light mode](docs/current-example.png)
+
+![History plots with real recorded measurements in dark mode](docs/history-example.png)
 
 ## Requirements
 

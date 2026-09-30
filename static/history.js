@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const {byId, has, number, text} = M;
-  const palette = ["#176db0", "#138777", "#b98327", "#8564aa"];
+
   const definitions = [
     {title: "Utilization", unit: "%", max: 100, wide: true, keys: [["cpu_percent", "CPU"], ["gpu_percent", "GPU"], ["gpu_memory_percent", "GPU memory controller"]]},
     {title: "Host memory", unit: "GiB", factor: 1073741824, keys: [["ram_used_bytes", "RAM used"], ["ram_available_bytes", "RAM available"], ["swap_used_bytes", "Swap used"]]},
@@ -40,7 +40,7 @@
       const legend = document.createElement("div"); legend.className = "legend";
       definition.keys.forEach(([key, label], index) => {
         const button = document.createElement("button"); button.setAttribute("aria-pressed", "true");
-        const swatch = document.createElement("span"); swatch.style.background = palette[index]; button.append(swatch, document.createTextNode(label));
+        const swatch = document.createElement("span"); swatch.style.background = `var(--chart-${index + 1})`; button.append(swatch, document.createTextNode(label));
         button.onclick = () => { this.hidden.has(key) ? this.hidden.delete(key) : this.hidden.add(key); button.classList.toggle("disabled", this.hidden.has(key)); button.setAttribute("aria-pressed", String(!this.hidden.has(key))); this.draw(); };
         legend.append(button);
       });
@@ -94,12 +94,15 @@
       this.draw();
     }
     draw() {
+      const style = getComputedStyle(document.documentElement);
+      const color = name => style.getPropertyValue(name).trim();
+      const palette = [1, 2, 3, 4].map(n => color(`--chart-${n}`));
       const width = this.width = Math.max(180, this.wrap.clientWidth), height = this.height = this.wrap.clientHeight;
       const ratio = window.devicePixelRatio || 1;
       if (this.canvas.width !== Math.round(width * ratio) || this.canvas.height !== Math.round(height * ratio)) {
         this.canvas.width = Math.round(width * ratio); this.canvas.height = Math.round(height * ratio);
       }
-      const ctx = this.ctx; ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, width, height); ctx.fillStyle = "#1a1d24"; ctx.fillRect(0, 0, width, height);
+      const ctx = this.ctx; ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, width, height); ctx.fillStyle = color("--paper"); ctx.fillRect(0, 0, width, height);
       const left = 51, right = width - 15, top = 12, bottom = height - 32, span = to - from;
       const x = t => left + (t - from) / span * (right - left);
       let maximum = 0, readings = false;
@@ -110,10 +113,10 @@
       });
       const upper = this.def.max || niceMax(maximum * 1.07);
       const y = value => bottom - value / upper * (bottom - top);
-      ctx.font = "10px system-ui, sans-serif"; ctx.fillStyle = "#9ca3af"; ctx.lineWidth = 1;
+      ctx.font = "10px system-ui, sans-serif"; ctx.fillStyle = color("--muted"); ctx.lineWidth = 1;
       for (let i = 0; i <= 4; i++) {
         const value = upper * i / 4, yy = y(value);
-        ctx.strokeStyle = "#343944"; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(right, yy); ctx.stroke();
+        ctx.strokeStyle = color("--line"); ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(right, yy); ctx.stroke();
         ctx.textAlign = "right"; ctx.fillText(axisNumber(value), left - 9, yy + 3);
       }
       const ticks = width < 430 ? 3 : width < 750 ? 4 : 7;
@@ -124,7 +127,7 @@
         ctx.fillText(label, xx, bottom + 20);
       }
       if (!this.data || !this.data.timestamps.length || !readings) {
-        ctx.fillStyle = "#9ca3af"; ctx.textAlign = "center"; ctx.font = "12px system-ui, sans-serif";
+        ctx.fillStyle = color("--muted"); ctx.textAlign = "center"; ctx.font = "12px system-ui, sans-serif";
         ctx.fillText(!this.data ? "Loading measurements…" : !this.data.timestamps.length ? "No samples in this time range" : this.hidden.size === this.def.keys.length ? "All series hidden" : "No sensor readings in this time range", (left + right) / 2, (top + bottom) / 2);
         this.tooltip.hidden = true; return;
       }
@@ -157,8 +160,8 @@
         }
       });
       if (this.drag) {
-        ctx.fillStyle = "#6ea8fe24"; ctx.fillRect(Math.min(this.drag.start, this.drag.end), top, Math.abs(this.drag.end - this.drag.start), bottom - top);
-        ctx.strokeStyle = "#6ea8fe"; ctx.lineWidth = 1; ctx.strokeRect(Math.min(this.drag.start, this.drag.end), top, Math.abs(this.drag.end - this.drag.start), bottom - top);
+        ctx.fillStyle = color("--selection"); ctx.fillRect(Math.min(this.drag.start, this.drag.end), top, Math.abs(this.drag.end - this.drag.start), bottom - top);
+        ctx.strokeStyle = color("--accent"); ctx.lineWidth = 1; ctx.strokeRect(Math.min(this.drag.start, this.drag.end), top, Math.abs(this.drag.end - this.drag.start), bottom - top);
       }
       if (this.hover && !this.drag && this.hover.x >= left && this.hover.x <= right && this.hover.y >= top && this.hover.y <= bottom) {
         const target = from + (this.hover.x - left) / (right - left) * span;
@@ -167,7 +170,7 @@
         let idx = low;
         if (idx > 0 && Math.abs(times[idx - 1] - target) < Math.abs(times[idx] - target)) idx--;
         if (Math.abs(times[idx] - target) <= this.data.bucket_seconds * 1.5 && this.data.sample_counts[idx]) {
-          const xx = x(times[idx]); ctx.strokeStyle = "#9ca3af"; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, bottom); ctx.stroke(); ctx.setLineDash([]);
+          const xx = x(times[idx]); ctx.strokeStyle = color("--muted"); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, bottom); ctx.stroke(); ctx.setLineDash([]);
           const lines = [M.date(times[idx])];
           this.def.keys.forEach(([key, label]) => {
             if (this.hidden.has(key)) return;
@@ -188,6 +191,7 @@
     }
   }
   const charts = definitions.map(def => new Chart(def));
+  window.addEventListener("themechange", () => charts.forEach(chart => chart.draw()));
   function displayRange() {
     byId("from").value = localInput(from); byId("to").value = localInput(to);
     text("range-label", `${M.date(from)} → ${M.date(to)}`);

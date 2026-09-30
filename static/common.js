@@ -1,4 +1,38 @@
 "use strict";
+// Apply the theme before the stylesheet paints; storage may be disabled by the browser.
+(() => {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const key = "monitor-theme";
+  let preference = null;
+  try { preference = localStorage.getItem(key); } catch (_) {}
+  if (preference !== "light" && preference !== "dark") preference = null;
+  function apply() {
+    const theme = preference || (media.matches ? "dark" : "light");
+    document.documentElement.dataset.theme = theme;
+    const button = document.getElementById("theme-toggle");
+    if (button) {
+      button.setAttribute("aria-checked", String(theme === "dark"));
+      button.title = `Switch to ${theme === "dark" ? "light" : "dark"} theme`;
+      document.getElementById("theme-label").textContent = theme === "dark" ? "Dark" : "Light";
+    }
+    window.dispatchEvent(new Event("themechange"));
+  }
+  apply();
+  document.addEventListener("DOMContentLoaded", () => {
+    apply();
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      preference = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      try { localStorage.setItem(key, preference); } catch (_) {}
+      apply();
+    });
+  });
+  media.addEventListener("change", () => { if (!preference) apply(); });
+  window.addEventListener("storage", event => {
+    if (event.key !== key && event.key !== null) return;
+    preference = event.newValue === "light" || event.newValue === "dark" ? event.newValue : null;
+    apply();
+  });
+})();
 window.M = (() => {
   const byId = id => document.getElementById(id);
   const has = v => typeof v === "number" && Number.isFinite(v);

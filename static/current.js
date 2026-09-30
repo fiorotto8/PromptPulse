@@ -21,6 +21,8 @@
     card("ram-value", has(m.ram_used_bytes) ? m.ram_used_bytes / 1073741824 : null, "GiB");
     card("power-value", m.gpu_power_w, "W");
     card("cpu-temp-value", m.cpu_temp_c, "°C"); card("gpu-temp-value", m.gpu_temp_c, "°C");
+    card("load-value", m.load_1, "", 2);
+    text("load-note", `5 min ${number(m.load_5, 2)} · 15 min ${number(m.load_15, 2)}`);
     meter("cpu-meter", m.cpu_percent); meter("gpu-meter", m.gpu_percent);
     const ramPercent = has(m.ram_used_bytes) && m.ram_total_bytes > 0 ? 100 * m.ram_used_bytes / m.ram_total_bytes : null;
     meter("ram-meter", ramPercent);
