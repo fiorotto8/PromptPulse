@@ -1,0 +1,35 @@
+# rtx-monitor managed unit
+[Unit]
+Description=Read-only Linux and NVIDIA RTX machine monitor
+Wants=network-online.target tailscaled.service
+After=network-online.target tailscaled.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=/opt/rtx-monitor
+ExecStart=/usr/bin/python3 -B /opt/rtx-monitor/monitor.py --config /opt/rtx-monitor/config.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+UMask=0077
+Nice=10
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/opt/rtx-monitor/data
+
+[Install]
+WantedBy=multi-user.target

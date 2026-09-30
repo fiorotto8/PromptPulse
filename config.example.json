@@ -1,0 +1,11 @@
+{
+  "bind": "tailscale",
+  "port": 8765,
+  "interval_seconds": 5,
+  "retention_days": 30,
+  "storage_path": "/",
+  "database": "data/monitor.db",
+  "network_interfaces": [],
+  "nvidia_smi_path": "auto",
+  "gpu_index": 0
+}
