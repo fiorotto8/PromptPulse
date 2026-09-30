@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 APP_DIR = Path(__file__).resolve().parent
-LOG = logging.getLogger("rtx-monitor")
+LOG = logging.getLogger("promptpulse")
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",

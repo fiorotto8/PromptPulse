@@ -8,8 +8,8 @@ Thanks for helping improve PromptPulse.
 2. Clone your fork and create a branch for your change:
 
    ```bash
-   git clone https://github.com/YOUR-USERNAME/promptpulse.git
-   cd promptpulse
+   git clone <YOUR-FORK-URL> PromptPulse
+   cd PromptPulse
    git switch -c describe-your-change
    ```
 

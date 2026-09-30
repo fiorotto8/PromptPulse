@@ -2,8 +2,8 @@
 # Install the monitor without adding packages or changing NVIDIA/Tailscale configuration.
 set -euo pipefail
 SOURCE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-BASE=/opt/rtx-monitor
-UNIT=/etc/systemd/system/rtx-monitor.service
+BASE=/opt/promptpulse
+UNIT=/etc/systemd/system/promptpulse.service
 [[ "$EUID" -eq 0 ]] || { echo 'Run: sudo bash install.sh' >&2; exit 1; }
 RUN_USER=${MONITOR_USER:-${SUDO_USER:-}}
 [[ -n "$RUN_USER" && "$RUN_USER" != root ]] || {
@@ -46,13 +46,14 @@ if [[ "$INSTALL_BIND" == tailscale ]] && ! command -v tailscale >/dev/null; then
   exit 1
 fi
 command -v systemctl >/dev/null || { echo 'systemd is required for this installer.' >&2; exit 1; }
+systemctl show-environment >/dev/null 2>&1 || { echo 'A running systemd system manager is required for this installer.' >&2; exit 1; }
 if [[ -e "$UNIT" ]]; then
-  grep -q '^# rtx-monitor managed unit' "$UNIT" || { echo "An unrelated $UNIT already exists. Refusing to overwrite it." >&2; exit 1; }
+  grep -q '^# promptpulse managed unit' "$UNIT" || { echo "An unrelated $UNIT already exists. Refusing to overwrite it." >&2; exit 1; }
 fi
 /usr/bin/python3 -B -m unittest discover -s tests -v
 # Copy only project files, never checkout metadata, caches, secrets or environments.
 ASSETS=(monitor.py README.md CONTRIBUTING.md LICENSE SETUP_PROMPT.md
-        config.example.json install.sh rtx-monitor.service
+        config.example.json install.sh promptpulse.service
         static/*.html static/*.css static/*.js tests/test*.py docs/*.png)
 for item in "${ASSETS[@]}"; do
   [[ -f "$SOURCE/$item" ]] || { echo "Missing project asset: $item" >&2; exit 1; }
@@ -64,12 +65,10 @@ if [[ "$SOURCE" != "$BASE" ]]; then
     install -m 0644 "$SOURCE/$item" "$BASE/$item"
   done
 fi
-# Remove the superseded managed prompt after installing its replacement.
-rm -f -- "$BASE/DEVICE_AGNOSTIC_IMPLEMENTATION_PROMPT.md"
 [[ -f "$BASE/config.json" ]] || install -m 0644 "$CONFIG_SOURCE" "$BASE/config.json"
 install -d -m 0700 -o "$RUN_USER" -g "$RUN_GROUP" "$BASE/data"
 chown -R root:root "$BASE/static" "$BASE/tests"
-chown root:root "$BASE/monitor.py" "$BASE/config.example.json" "$BASE/rtx-monitor.service" "$BASE/README.md"
+chown root:root "$BASE/monitor.py" "$BASE/config.example.json" "$BASE/promptpulse.service" "$BASE/README.md"
 chmod 0755 "$BASE/monitor.py"
 cd "$BASE"
 if command -v nvidia-smi >/dev/null; then
@@ -80,11 +79,11 @@ fi
 if [[ -e "$UNIT" ]]; then
   cp -a -- "$UNIT" "$UNIT.bak.$(date +%Y%m%d-%H%M%S)"
 fi
-sed -e "s/__USER__/$RUN_USER/g" -e "s/__GROUP__/$RUN_GROUP/g" "$BASE/rtx-monitor.service" > "$UNIT"
+sed -e "s/__USER__/$RUN_USER/g" -e "s/__GROUP__/$RUN_GROUP/g" "$BASE/promptpulse.service" > "$UNIT"
 chmod 0644 "$UNIT"
 systemctl daemon-reload
-systemctl enable rtx-monitor.service
-systemctl restart rtx-monitor.service
+systemctl enable promptpulse.service
+systemctl restart promptpulse.service
 printf '\nInstalled as %s.\n' "$RUN_USER"
 PORT=$(/usr/bin/python3 -B -c 'from pathlib import Path; from monitor import config_load; print(config_load(Path("config.json"))["port"])')
 if [[ "$INSTALL_BIND" == tailscale ]] && IP=$(tailscale ip -4 2>/dev/null | head -n1) && [[ -n "$IP" ]]; then
@@ -94,4 +93,4 @@ elif [[ "$INSTALL_BIND" != tailscale ]]; then
 else
   echo 'The HTTP listener will wait for tailscale0. Sampling continues meanwhile.'
 fi
-printf '\nVerify: systemctl status rtx-monitor --no-pager\nLogs:   journalctl -u rtx-monitor -n 50 --no-pager\n'
+printf '\nVerify: systemctl status promptpulse --no-pager\nLogs:   journalctl -u promptpulse -n 50 --no-pager\n'

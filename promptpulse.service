@@ -1,4 +1,4 @@
-# rtx-monitor managed unit
+# promptpulse managed unit
 [Unit]
 Description=PromptPulse private Linux performance dashboard
 Wants=network-online.target tailscaled.service
@@ -9,8 +9,8 @@ StartLimitIntervalSec=0
 Type=simple
 User=__USER__
 Group=__GROUP__
-WorkingDirectory=/opt/rtx-monitor
-ExecStart=/usr/bin/python3 -B /opt/rtx-monitor/monitor.py --config /opt/rtx-monitor/config.json
+WorkingDirectory=/opt/promptpulse
+ExecStart=/usr/bin/python3 -B /opt/promptpulse/monitor.py --config /opt/promptpulse/config.json
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20
@@ -29,7 +29,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-ReadWritePaths=/opt/rtx-monitor/data
+ReadWritePaths=/opt/promptpulse/data
 
 [Install]
 WantedBy=multi-user.target

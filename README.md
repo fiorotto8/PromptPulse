@@ -20,8 +20,8 @@ Machine-specific settings live in ignored `config.json`; the application stays r
 1. Clone this repository using its GitHub **Code** URL, then enter the directory:
 
    ```bash
-   git clone <REPOSITORY-URL> promptpulse
-   cd promptpulse
+   git clone <REPOSITORY-URL> PromptPulse
+   cd PromptPulse
    ```
 
    A downloaded ZIP works too: extract it and open the extracted project directory.
@@ -73,14 +73,13 @@ sudo bash install.sh
 ```
 
 The installer validates configuration and runs the tests before replacing application
-files. It installs into `/opt/rtx-monitor` and runs as the account that invoked `sudo`.
+files. It copies the application into `/opt/promptpulse`, creates `promptpulse.service`,
+and runs as the account that invoked `sudo`. The installed service is independent
+of the checkout: the folder may have any name and can be moved after installation.
 For another existing normal account, use `sudo MONITOR_USER=myuser bash install.sh`.
 
-For upgrade compatibility, PromptPulse keeps the original `rtx-monitor` service
-name and `/opt/rtx-monitor` installation directory. The commands below use these names.
-
 On first installation, your source `config.json` is used, or the example if none
-exists. On upgrades, `/opt/rtx-monitor/config.json` takes precedence and existing
+exists. On upgrades, `/opt/promptpulse/config.json` takes precedence and existing
 data is preserved. Edit that installed configuration to change a running service.
 The installer does not install drivers, packages, or Tailscale, or change firewall
 rules, GPU clocks, or power limits.
@@ -128,16 +127,16 @@ memory-controller activity, VRAM, temperature, power, clocks, fan, and driver de
 History supports range presets, custom ranges, pan, drag-to-zoom, Ctrl+wheel zoom,
 and reset. Long ranges retain mean/minimum/maximum values so peaks remain visible.
 
-After editing `/opt/rtx-monitor/config.json`:
+After editing `/opt/promptpulse/config.json`:
 
 ```bash
-sudo systemctl restart rtx-monitor
-systemctl status rtx-monitor --no-pager
-journalctl -u rtx-monitor -n 50 --no-pager
+sudo systemctl restart promptpulse
+systemctl status promptpulse --no-pager
+journalctl -u promptpulse -n 50 --no-pager
 ```
 
-Use `sudo systemctl stop rtx-monitor` or `sudo systemctl start rtx-monitor` to stop
-or start it. Its database is at `/opt/rtx-monitor/data/monitor.db`.
+Use `sudo systemctl stop promptpulse` or `sudo systemctl start promptpulse` to stop
+or start it. Its database is at `/opt/promptpulse/data/monitor.db`.
 
 ## Test and contribute
 

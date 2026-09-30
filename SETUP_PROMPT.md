@@ -3,12 +3,12 @@
 Use this repository as the working application. Inspect this Linux host, configure
 the monitor for it, and install and verify the service. NVIDIA hardware is optional.
 Prefer configuration over code changes. Keep the work and your responses concise.
-The service and installation path remain `rtx-monitor` and `/opt/rtx-monitor` for
-upgrade compatibility; do not rename or migrate them during setup.
+The installer copies the application to `/opt/promptpulse` and creates
+`promptpulse.service`. The checkout folder may have any name.
 
 ## Inspect once
 
-Read `config.example.json`, `install.sh`, and `rtx-monitor.service`. Read the README
+Read `config.example.json`, `install.sh`, and `promptpulse.service`. Read the README
 for usage and only the relevant functions in `monitor.py` if a compatibility issue
 appears. Do not scan unrelated directories, dump hardware inventories, create
 planning/report files, or install extra tooling to perform routine checks.
@@ -17,7 +17,7 @@ In one batch, check Python/SQLite versions, systemd, the normal service account,
 Tailscale's connection and IPv4, available private LAN addresses, `/proc` and `/sys`,
 the filesystem to monitor, physical network interfaces, and optional `nvidia-smi`.
 Missing NVIDIA tools, GPU access, or sensors must not block host monitoring.
-Inspect any existing `/opt/rtx-monitor/config.json` and service before changing them.
+Inspect any existing `/opt/promptpulse/config.json` and service before changing them.
 
 ## Configure locally
 
@@ -43,7 +43,7 @@ Inspect any existing `/opt/rtx-monitor/config.json` and service before changing 
 2. State the chosen network mode, service account, and any unavailable telemetry
    briefly. Run `sudo bash install.sh` using that normal account. If privileges are
    unavailable, give the exact command for the user; never ask for their password.
-3. Check `systemctl status rtx-monitor --no-pager` and recent service logs. Fetch
+3. Check `systemctl status promptpulse --no-pager` and recent service logs. Fetch
    `/api/current` using the exact private IP and port; verify a fresh host sample.
    Check `/` and `/history`; use a browser if already available. For Tailscale, the
    viewing device must also have access to this Tailnet.
