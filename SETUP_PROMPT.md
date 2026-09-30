@@ -41,6 +41,10 @@ Inspect any existing `/opt/promptpulse/config.json` and service before changing 
 - Bound subprocess waits and output, isolate tool failures from host sampling, and
   terminate/reap only children this application owns. Test representative output,
   missing tools/permissions, stale data, and cleanup. Never use global stop commands.
+- Absent optional hardware/tools and unsupported individual readings are normal:
+  show null/`—` without warnings. Readers use `telemetry_status` with `absent`,
+  `starting`, `ready`, or `error`; only genuine failures of configured or detected
+  collectors warrant warnings. Keep this distinction for any new hardware support.
 
 ## Configure locally
 

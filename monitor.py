@@ -160,6 +160,29 @@ def parse_nvidia_csv(line):
     return result
 
 
+def telemetry_status(state, message=""):
+    """Optional hardware can be absent or starting without being in error."""
+    return {"available": state == "ready", "state": state, "message": message}
+
+
+def nvidia_gpu_present():
+    """Return None if hardware discovery is unavailable, rather than guessing."""
+    if "nvidia,tegra" in read_text("/proc/device-tree/compatible"):
+        return True
+    try:
+        devices = list(Path("/sys/bus/pci/devices").iterdir())
+    except OSError:
+        return None
+    complete = True
+    for device in devices:
+        vendor, kind = read_text(device / "vendor"), read_text(device / "class")
+        if not vendor or not kind:
+            complete = False
+        if vendor == "0x10de" and kind.startswith(("0x03", "0x12")):
+            return True
+    return False if complete else None
+
+
 class NvidiaReader:
     QUERY = (
         "name,uuid,driver_version,pci.bus_id,utilization.gpu,utilization.memory,"
@@ -169,6 +192,7 @@ class NvidiaReader:
 
     def __init__(self, cfg):
         self.cfg = cfg
+        self.seen_gpu = False
         path = cfg["nvidia_smi_path"]
         self.path = shutil.which("nvidia-smi") if path == "auto" else path
         if not self.path and path == "auto":
@@ -177,26 +201,35 @@ class NvidiaReader:
                     self.path = candidate
                     break
 
+    def failure(self, message):
+        # Leftover vendor utilities on a host without that hardware are normal.
+        # Explicit configuration and loss of previously working telemetry are errors.
+        if (not self.seen_gpu and self.cfg["nvidia_smi_path"] == "auto"
+                and self.cfg["gpu_index"] == 0 and nvidia_gpu_present() is False):
+            return {}, telemetry_status("absent")
+        return {}, telemetry_status("error", message)
+
     def sample(self):
         if not self.path:
-            return {}, {"available": False, "message": "nvidia-smi not found; host metrics remain available"}
+            return {}, telemetry_status("absent")
         cmd = [self.path, "--query-gpu=" + self.QUERY, "--format=csv,noheader,nounits", "-i", str(self.cfg["gpu_index"])]
         try:
             proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                   timeout=max(2, min(5, self.cfg["interval_seconds"])), check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            return {}, {"available": False, "message": "nvidia-smi failed: %s" % exc}
+            return self.failure("nvidia-smi failed: %s" % exc)
         if proc.returncode != 0:
             message = (proc.stderr or proc.stdout or "nvidia-smi returned an error").strip().replace("\n", " ")[:240]
-            return {}, {"available": False, "message": message}
+            return self.failure(message)
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         if not lines:
-            return {}, {"available": False, "message": "nvidia-smi returned no GPU row"}
+            return self.failure("nvidia-smi returned no GPU row")
         try:
             parsed = parse_nvidia_csv(lines[0])
         except Exception as exc:
-            return {}, {"available": False, "message": "Cannot parse nvidia-smi output: %s" % exc}
-        return parsed, {"available": True, "message": "Reading nvidia-smi"}
+            return {}, telemetry_status("error", "Cannot parse nvidia-smi output: %s" % exc)
+        self.seen_gpu = True
+        return parsed, telemetry_status("ready", "Reading nvidia-smi")
 
 
 def parse_tegrastats(line):
@@ -236,22 +269,26 @@ class TegraReader:
         self.cfg, self.stop = cfg, stop
         path = cfg["tegrastats_path"]
         self.path = shutil.which("tegrastats") if path == "auto" else path
+        if self.path and path == "auto" and nvidia_gpu_present() is False:
+            self.path = None
         self.lock = threading.Lock()
         self.last, self.updated = {}, None
-        self.error = "Waiting for tegrastats"
+        self.error = ""
         self.thread = threading.Thread(target=self.run, name="tegrastats-reader", daemon=True)
 
     def sample(self):
         if self.cfg["gpu_index"] != 0 or not self.path:
-            return {}, {"available": False, "message": "tegrastats unavailable for this GPU; host metrics remain available"}
+            return {}, telemetry_status("absent")
         if self.thread.ident is None and not self.stop.is_set():
             self.thread.start()
         with self.lock:
             age = time.monotonic() - self.updated if self.updated is not None else None
             fresh = age is not None and age <= max(15, 2.5 * self.cfg["interval_seconds"])
             values = copy.deepcopy(self.last) if fresh else {}
-            status = {"available": fresh, "age_seconds": round(age, 1) if age is not None else None,
-                      "message": "Reading tegrastats" if fresh else self.error or "tegrastats sample is stale"}
+            state = "ready" if fresh else "error" if self.error or age is not None else "starting"
+            message = "Reading tegrastats" if fresh else self.error or (
+                "tegrastats sample is stale" if state == "error" else "Waiting for tegrastats")
+            status = dict(telemetry_status(state, message), age_seconds=round(age, 1) if age is not None else None)
         if fresh:
             values["gpu_name"] = "Jetson integrated GPU"
         if fresh and "gpu_freq_mhz" not in values:
@@ -600,7 +637,10 @@ class Application:
             source = "tegrastats"
             status = dict(fallback)
             if not status["available"]:
-                status["message"] = details["nvidia_smi"]["message"] + "; " + fallback["message"]
+                candidates = (details["nvidia_smi"], fallback)
+                errors = [s["message"] for s in candidates if s.get("state") == "error"]
+                state = "error" if errors else "starting" if any(s.get("state") == "starting" for s in candidates) else "absent"
+                status = telemetry_status(state, "; ".join(errors))
         for key in METRICS:
             if key in gpu:
                 metrics[key] = gpu[key]

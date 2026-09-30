@@ -130,6 +130,12 @@ to an installed `tegrastats`. Its managed child samples at the configured interv
 missing tools, permissions, and stale output leave host monitoring available.
 The dashboard and `details.gpu_telemetry` report the selected source's status;
 the existing `details.nvidia_smi` status is preserved.
+Optional telemetry uses `absent`, `starting`, `ready`, and `error` states. Missing
+auto-discovered tools and unsupported sensor fields show `—` without warnings.
+Vendor utilities left installed on a host with no matching hardware are quiet too.
+Failed tools, invalid explicit tool paths, and stale telemetry still report errors;
+a working fallback suppresses errors from the other source. No configuration change
+is needed for a host without GPU tools.
 
 Jetson readings follow [NVIDIA's tegrastats field definitions](https://docs.nvidia.com/jetson/archives/r36.5/DeveloperGuide/AT/JetsonLinuxDevelopmentTools/TegrastatsUtility.html):
 GPU load, the highest reported GPC clock, valid temperatures, and dedicated GPU

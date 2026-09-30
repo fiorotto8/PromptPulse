@@ -105,12 +105,67 @@ class ParserTests(unittest.TestCase):
                 m.tailnet_address('100.80.90.101')
 
 
+class HardwareDiscoveryTests(unittest.TestCase):
+    def test_optional_hardware_detection(self):
+        cases = [
+            ('nvidia,tegra234', {}, True),
+            ('', {}, False),
+            ('', {'vendor': '0x8086', 'class': '0x030000'}, False),
+            ('', {'vendor': '0x1002', 'class': '0x030000'}, False),
+            ('', {'vendor': '0x10de', 'class': '0x030200'}, True),
+            ('', {'vendor': '0x10de', 'class': '0x120000'}, True),
+            ('', {'vendor': '0x10de', 'class': '0x020000'}, False),
+            ('', {'vendor': '0x10de', 'class': ''}, None),
+        ]
+        for compatible, attributes, expected in cases:
+            with self.subTest(compatible=compatible, attributes=attributes):
+                def read(path):
+                    return compatible if str(path) == '/proc/device-tree/compatible' else attributes.get(Path(path).name, '')
+                with mock.patch.object(m, 'read_text', side_effect=read), \
+                        mock.patch.object(Path, 'iterdir', return_value=[Path('/device')] if attributes else []):
+                    self.assertIs(m.nvidia_gpu_present(), expected)
+        with mock.patch.object(m, 'read_text', return_value=''), \
+                mock.patch.object(Path, 'iterdir', side_effect=PermissionError):
+            self.assertIsNone(m.nvidia_gpu_present())
+
+
 class NvidiaReaderTests(unittest.TestCase):
+    def test_missing_auto_tool_is_absent(self):
+        with mock.patch.object(m.shutil, 'which', return_value=None), \
+                mock.patch.object(Path, 'is_file', return_value=False):
+            reader = m.NvidiaReader(dict(m.DEFAULTS))
+        values, status = reader.sample()
+        self.assertEqual(values, {})
+        self.assertEqual(status, m.telemetry_status('absent'))
+
     def test_missing_binary(self):
         cfg = dict(m.DEFAULTS, nvidia_smi_path='/definitely/not/here')
         values, status = m.NvidiaReader(cfg).sample()
         self.assertEqual(values, {})
         self.assertFalse(status['available'])
+        self.assertEqual(status['state'], 'error')  # An explicit invalid path needs attention.
+
+    def test_installed_tool_failure_without_hardware_is_quiet(self):
+        failure = mock.Mock(returncode=1, stdout='', stderr='No devices were found')
+        with mock.patch.object(m.shutil, 'which', return_value='/usr/bin/nvidia-smi'):
+            reader = m.NvidiaReader(dict(m.DEFAULTS))
+        for present, state in ((False, 'absent'), (True, 'error'), (None, 'error')):
+            with self.subTest(hardware=present), \
+                    mock.patch.object(m, 'nvidia_gpu_present', return_value=present), \
+                    mock.patch.object(m.subprocess, 'run', return_value=failure):
+                values, status = reader.sample()
+                self.assertEqual(status['state'], state)
+                self.assertEqual(bool(status['message']), state == 'error')
+
+    def test_loss_of_working_gpu_still_warns(self):
+        with mock.patch.object(m.shutil, 'which', return_value='/usr/bin/nvidia-smi'):
+            reader = m.NvidiaReader(dict(m.DEFAULTS))
+        success = mock.Mock(returncode=0, stdout=GPU_LINE, stderr='')
+        failure = mock.Mock(returncode=1, stdout='', stderr='GPU lost')
+        with mock.patch.object(m.subprocess, 'run', side_effect=[success, failure]), \
+                mock.patch.object(m, 'nvidia_gpu_present', return_value=False):
+            self.assertEqual(reader.sample()[1]['state'], 'ready')
+            self.assertEqual(reader.sample()[1]['state'], 'error')
 
     def test_mock_command(self):
         cfg = dict(m.DEFAULTS, nvidia_smi_path='/usr/bin/nvidia-smi')
@@ -134,6 +189,18 @@ class NvidiaReaderTests(unittest.TestCase):
 
 
 class TegraReaderTests(unittest.TestCase):
+    def test_startup_is_not_an_error(self):
+        reader = m.TegraReader(dict(m.DEFAULTS, tegrastats_path='/unused'), threading.Event())
+        reader.stop.set()
+        self.assertEqual(reader.sample()[1]['state'], 'starting')
+
+    def test_unused_auto_tool_is_not_started_without_hardware(self):
+        with mock.patch.object(m.shutil, 'which', return_value='/unused/tegrastats'), \
+                mock.patch.object(m, 'nvidia_gpu_present', return_value=False):
+            reader = m.TegraReader(dict(m.DEFAULTS), threading.Event())
+        self.assertEqual(reader.sample()[1]['state'], 'absent')
+        self.assertIsNone(reader.thread.ident)
+
     def test_missing_tool_and_nonzero_gpu(self):
         for path, index in ((None, 0), ('/unused/tegrastats', 1)):
             cfg = dict(m.DEFAULTS, gpu_index=index)
@@ -165,6 +232,7 @@ class TegraReaderTests(unittest.TestCase):
                 self.assertEqual(values, {})
                 self.assertFalse(status['available'])
                 self.assertIn('stale', status['message'])
+                self.assertEqual(status['state'], 'error')
 
     def test_stream_and_owned_child_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -251,9 +319,9 @@ class TegraReaderTests(unittest.TestCase):
 class CollectorTests(unittest.TestCase):
     def test_host_only_without_gpu_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
-            cfg = dict(m.DEFAULTS, database=str(Path(tmp) / 'monitor.db'), storage_path=tmp,
-                       nvidia_smi_path='/definitely/not/here')
-            with mock.patch.object(m.shutil, 'which', return_value=None):
+            cfg = dict(m.DEFAULTS, database=str(Path(tmp) / 'monitor.db'), storage_path=tmp)
+            with mock.patch.object(m.shutil, 'which', return_value=None), \
+                    mock.patch.object(Path, 'is_file', return_value=False):
                 app = m.Application(cfg)
             sample = app.collect()
             self.assertGreater(sample['metrics']['ram_total_bytes'], 0)
@@ -261,15 +329,38 @@ class CollectorTests(unittest.TestCase):
             self.assertIsNone(sample['metrics']['gpu_percent'])
             self.assertIsNone(sample['metrics']['gpu_vram_total_bytes'])
             self.assertFalse(sample['details']['gpu_telemetry']['available'])
+            self.assertEqual(sample['details']['gpu_telemetry']['state'], 'absent')
+            self.assertEqual(sample['details']['gpu_telemetry']['message'], '')
             self.assertIsNone(app.tegra.thread.ident)
+
+    def test_optional_status_only_reports_real_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = m.Application(dict(m.DEFAULTS, database=str(Path(tmp) / 'monitor.db'), storage_path=tmp))
+            cases = [
+                ('absent', 'absent', 'absent', ''),
+                ('absent', 'starting', 'starting', ''),
+                ('error', 'absent', 'error', 'NVIDIA failure'),
+                ('absent', 'error', 'error', 'Tegra failure'),
+                ('error', 'error', 'error', 'NVIDIA failure; Tegra failure'),
+                ('error', 'ready', 'ready', ''),
+            ]
+            for nvidia, tegra, state, message in cases:
+                with self.subTest(nvidia=nvidia, tegra=tegra), \
+                        mock.patch.object(app.nvidia, 'sample', return_value=(
+                            {}, m.telemetry_status(nvidia, 'NVIDIA failure' if nvidia == 'error' else ''))), \
+                        mock.patch.object(app.tegra, 'sample', return_value=(
+                            {}, m.telemetry_status(tegra, 'Tegra failure' if tegra == 'error' else ''))):
+                    status = app.collect()['details']['gpu_telemetry']
+                    self.assertEqual(status['state'], state)
+                    self.assertEqual(status['message'], message)
 
     def test_gpu_fallback_preserves_host_readings_and_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = dict(m.DEFAULTS, database=str(Path(tmp) / 'monitor.db'), storage_path=tmp)
             app = m.Application(cfg)
             host = {'ram_used_bytes': 123, 'gpu_vram_used_bytes': None, 'gpu_percent': None}
-            failed = {'available': False, 'message': 'tool missing'}
-            ready = {'available': True, 'message': 'reading'}
+            failed = m.telemetry_status('error', 'tool failed')
+            ready = m.telemetry_status('ready', 'reading')
             with mock.patch.object(app.linux, 'sample', return_value=(host, {})), \
                     mock.patch.object(app.nvidia, 'sample', return_value=({}, failed)), \
                     mock.patch.object(app.tegra, 'sample', return_value=(m.parse_tegrastats(TEGRA_LINE), ready)) as tegra:

@@ -63,8 +63,7 @@
     const warnings = [];
     if (data.collector_error) warnings.push(`Collector error: ${data.collector_error}. Showing the last stored reading.`);
     const telemetry = d.gpu_telemetry || d.nvidia_smi;
-    if (!telemetry?.available) warnings.push(telemetry?.message || "GPU telemetry is unavailable.");
-    else if (!has(m.gpu_percent)) warnings.push("GPU utilization was not reported by the available telemetry source.");
+    if (telemetry?.state === "error") warnings.push(telemetry.message || "GPU telemetry failed.");
     M.notice(warnings.join(" "));
     text("footer-sample", `Saved ${M.date(data.sample.timestamp)} · unavailable readings are —`);
   }
