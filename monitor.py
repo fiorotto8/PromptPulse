@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Linux/NVIDIA RTX monitor: Python standard library, SQLite and local web UI."""
+"""PromptPulse: private Linux host and optional NVIDIA monitoring."""
 from __future__ import annotations
 
 import argparse
@@ -564,7 +564,7 @@ class MonitorServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RTXMonitor"
+    server_version = "PromptPulse"
     sys_version = ""
     STATIC = {"/": ("current.html", "text/html"), "/history": ("history.html", "text/html"),
               "/static/style.css": ("style.css", "text/css"),

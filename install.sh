@@ -51,7 +51,7 @@ if [[ -e "$UNIT" ]]; then
 fi
 /usr/bin/python3 -B -m unittest discover -s tests -v
 # Copy only project files, never checkout metadata, caches, secrets or environments.
-ASSETS=(monitor.py README.md CONTRIBUTING.md LICENSE DEVICE_AGNOSTIC_IMPLEMENTATION_PROMPT.md
+ASSETS=(monitor.py README.md CONTRIBUTING.md LICENSE SETUP_PROMPT.md
         config.example.json install.sh rtx-monitor.service
         static/*.html static/*.css static/*.js tests/test*.py docs/*.png)
 for item in "${ASSETS[@]}"; do
@@ -64,6 +64,8 @@ if [[ "$SOURCE" != "$BASE" ]]; then
     install -m 0644 "$SOURCE/$item" "$BASE/$item"
   done
 fi
+# Remove the superseded managed prompt after installing its replacement.
+rm -f -- "$BASE/DEVICE_AGNOSTIC_IMPLEMENTATION_PROMPT.md"
 [[ -f "$BASE/config.json" ]] || install -m 0644 "$CONFIG_SOURCE" "$BASE/config.json"
 install -d -m 0700 -o "$RUN_USER" -g "$RUN_GROUP" "$BASE/data"
 chown -R root:root "$BASE/static" "$BASE/tests"

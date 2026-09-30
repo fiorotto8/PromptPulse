@@ -1,8 +1,10 @@
-# Set up RTX Monitor on this machine
+# Set up PromptPulse on this machine
 
 Use this repository as the working application. Inspect this Linux host, configure
 the monitor for it, and install and verify the service. NVIDIA hardware is optional.
 Prefer configuration over code changes. Keep the work and your responses concise.
+The service and installation path remain `rtx-monitor` and `/opt/rtx-monitor` for
+upgrade compatibility; do not rename or migrate them during setup.
 
 ## Inspect once
 

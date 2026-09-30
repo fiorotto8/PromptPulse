@@ -1,6 +1,6 @@
 # rtx-monitor managed unit
 [Unit]
-Description=Read-only Linux and NVIDIA RTX machine monitor
+Description=PromptPulse private Linux performance dashboard
 Wants=network-online.target tailscaled.service
 After=network-online.target tailscaled.service
 StartLimitIntervalSec=0

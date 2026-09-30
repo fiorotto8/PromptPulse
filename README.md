@@ -1,11 +1,18 @@
-# RTX Monitor
+# PromptPulse
 
-A small, private dashboard for Linux host and optional NVIDIA GPU monitoring.
+**A local Linux performance dashboard you install by telling your AI coding harness to do it.**
+
+Clone it. Give your coding agent [one setup prompt](SETUP_PROMPT.md). Open your dashboard.
+The agent inspects your machine, configures the existing application, and verifies
+installation. Once installed, PromptPulse runs independently of the agent.
+
+- **See your host:** CPU, memory, storage, network, and optional NVIDIA GPU telemetry.
+- **Explore real history:** interactive charts, zoom, and 30 days of local measurements.
+- **Make it comfortable:** light and dark themes, with a layout that adapts to your screen.
+- **Keep it private:** Tailscale by default, or an explicit address on a trusted LAN.
+
 Python standard library, SQLite, and local HTML/CSS/JavaScript. No Python packages,
-containers, or external monitoring services required.
-
-Clone the generic application, then let your coding agent configure it for your
-machine with one [setup prompt](DEVICE_AGNOSTIC_IMPLEMENTATION_PROMPT.md).
+containers, external web resources, or AI connection needed by the dashboard.
 Machine-specific settings live in ignored `config.json`; the application stays reusable.
 
 ## Quick start with a coding agent
@@ -13,15 +20,15 @@ Machine-specific settings live in ignored `config.json`; the application stays r
 1. Clone this repository using its GitHub **Code** URL, then enter the directory:
 
    ```bash
-   git clone <REPOSITORY-URL> rtx-monitor
-   cd rtx-monitor
+   git clone <REPOSITORY-URL> promptpulse
+   cd promptpulse
    ```
 
    A downloaded ZIP works too: extract it and open the extracted project directory.
 
 2. Open Claude Code, Codex, Pi, or another coding agent in that directory and say:
 
-   > Follow DEVICE_AGNOSTIC_IMPLEMENTATION_PROMPT.md to configure, install, and verify RTX Monitor on this machine. Prefer configuration over code changes.
+   > Read SETUP_PROMPT.md and set up PromptPulse on this machine. Prefer configuration over code changes.
 
 3. The agent checks the host, prepares local configuration, runs tests, installs
    the service, and gives you the private dashboard URL. It asks about network mode
@@ -68,6 +75,9 @@ sudo bash install.sh
 The installer validates configuration and runs the tests before replacing application
 files. It installs into `/opt/rtx-monitor` and runs as the account that invoked `sudo`.
 For another existing normal account, use `sudo MONITOR_USER=myuser bash install.sh`.
+
+For upgrade compatibility, PromptPulse keeps the original `rtx-monitor` service
+name and `/opt/rtx-monitor` installation directory. The commands below use these names.
 
 On first installation, your source `config.json` is used, or the example if none
 exists. On upgrades, `/opt/rtx-monitor/config.json` takes precedence and existing

@@ -1,6 +1,6 @@
-# Contributing to RTX Monitor
+# Contributing to PromptPulse
 
-Thanks for helping improve RTX Monitor.
+Thanks for helping improve PromptPulse.
 
 ## Simple workflow
 
@@ -8,8 +8,8 @@ Thanks for helping improve RTX Monitor.
 2. Clone your fork and create a branch for your change:
 
    ```bash
-   git clone https://github.com/YOUR-USERNAME/rtx-monitor.git
-   cd rtx-monitor
+   git clone https://github.com/YOUR-USERNAME/promptpulse.git
+   cd promptpulse
    git switch -c describe-your-change
    ```
 
@@ -29,6 +29,6 @@ Thanks for helping improve RTX Monitor.
 - Keep the default network behavior private. Do not add wildcard or public binds.
 - Keep NVIDIA support optional and report unavailable hardware as unavailable rather than zero.
 - Preserve the standard-library-only design unless a dependency is clearly necessary.
-- Update the README or the device-agnostic implementation prompt when configuration behavior changes.
+- Update the README or [SETUP_PROMPT.md](SETUP_PROMPT.md) when configuration behavior changes.
 
 For a bug report, include the operating system, Python version, configuration mode (`tailscale`, private IPv4, or loopback), and relevant sanitized logs. Do not include secrets or public links to a private dashboard.
