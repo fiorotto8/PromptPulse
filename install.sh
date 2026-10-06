@@ -2,8 +2,10 @@
 # Install the monitor without adding packages or changing NVIDIA/Tailscale configuration.
 set -euo pipefail
 SOURCE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-BASE=/opt/promptpulse
-UNIT=/etc/systemd/system/promptpulse.service
+BASE=/opt/syslume
+UNIT=/etc/systemd/system/syslume.service
+LEGACY_BASE=/opt/promptpulse
+LEGACY_UNIT=/etc/systemd/system/promptpulse.service
 [[ "$EUID" -eq 0 ]] || { echo 'Run: sudo bash install.sh' >&2; exit 1; }
 RUN_USER=${MONITOR_USER:-${SUDO_USER:-}}
 [[ -n "$RUN_USER" && "$RUN_USER" != root ]] || {
@@ -23,6 +25,7 @@ PY
 cd "$SOURCE"
 CONFIG_SOURCE="$SOURCE/config.example.json"
 [[ ! -f "$SOURCE/config.json" ]] || CONFIG_SOURCE="$SOURCE/config.json"
+[[ ! -f "$LEGACY_BASE/config.json" ]] || CONFIG_SOURCE="$LEGACY_BASE/config.json"
 [[ ! -f "$BASE/config.json" ]] || CONFIG_SOURCE="$BASE/config.json"
 INSTALL_BIND=$(/usr/bin/python3 -B - "$CONFIG_SOURCE" "$BASE" <<'PYCONFIG'
 import json
@@ -48,12 +51,22 @@ fi
 command -v systemctl >/dev/null || { echo 'systemd is required for this installer.' >&2; exit 1; }
 systemctl show-environment >/dev/null 2>&1 || { echo 'A running systemd system manager is required for this installer.' >&2; exit 1; }
 if [[ -e "$UNIT" ]]; then
-  grep -q '^# promptpulse managed unit' "$UNIT" || { echo "An unrelated $UNIT already exists. Refusing to overwrite it." >&2; exit 1; }
+  grep -q '^# syslume managed unit' "$UNIT" || { echo "An unrelated $UNIT already exists. Refusing to overwrite it." >&2; exit 1; }
+fi
+if [[ -e "$LEGACY_UNIT" ]]; then
+  grep -q '^# promptpulse managed unit' "$LEGACY_UNIT" || { echo "An unrelated $LEGACY_UNIT already exists. Refusing automatic migration." >&2; exit 1; }
 fi
 /usr/bin/python3 -B -m unittest discover -s tests -v
+# Migrate an existing PromptPulse installation only when SysLume has no database yet.
+MIGRATE_LEGACY=0
+if [[ ! -e "$BASE/data/monitor.db" && -e "$LEGACY_BASE/data/monitor.db" ]]; then
+  MIGRATE_LEGACY=1
+  [[ ! -e "$LEGACY_UNIT" ]] || systemctl stop promptpulse.service
+fi
+
 # Copy only project files, never checkout metadata, caches, secrets or environments.
 ASSETS=(monitor.py README.md CONTRIBUTING.md LICENSE SETUP_PROMPT.md
-        config.example.json install.sh promptpulse.service
+        config.example.json install.sh syslume.service
         static/*.html static/*.css static/*.js tests/test*.py docs/*.png)
 for item in "${ASSETS[@]}"; do
   [[ -f "$SOURCE/$item" ]] || { echo "Missing project asset: $item" >&2; exit 1; }
@@ -67,8 +80,13 @@ if [[ "$SOURCE" != "$BASE" ]]; then
 fi
 [[ -f "$BASE/config.json" ]] || install -m 0644 "$CONFIG_SOURCE" "$BASE/config.json"
 install -d -m 0700 -o "$RUN_USER" -g "$RUN_GROUP" "$BASE/data"
+if [[ "$MIGRATE_LEGACY" -eq 1 ]]; then
+  for dbfile in monitor.db monitor.db-wal monitor.db-shm; do
+    [[ ! -f "$LEGACY_BASE/data/$dbfile" ]] || install -m 0600 -o "$RUN_USER" -g "$RUN_GROUP" "$LEGACY_BASE/data/$dbfile" "$BASE/data/$dbfile"
+  done
+fi
 chown -R root:root "$BASE/static" "$BASE/tests"
-chown root:root "$BASE/monitor.py" "$BASE/config.example.json" "$BASE/promptpulse.service" "$BASE/README.md"
+chown root:root "$BASE/monitor.py" "$BASE/config.example.json" "$BASE/syslume.service" "$BASE/README.md"
 chmod 0755 "$BASE/monitor.py"
 cd "$BASE"
 runuser -u "$RUN_USER" -- /usr/bin/python3 -B - <<'PYTOOLS'
@@ -86,12 +104,18 @@ PYTOOLS
 if [[ -e "$UNIT" ]]; then
   cp -a -- "$UNIT" "$UNIT.bak.$(date +%Y%m%d-%H%M%S)"
 fi
-sed -e "s/__USER__/$RUN_USER/g" -e "s/__GROUP__/$RUN_GROUP/g" "$BASE/promptpulse.service" > "$UNIT"
+sed -e "s/__USER__/$RUN_USER/g" -e "s/__GROUP__/$RUN_GROUP/g" "$BASE/syslume.service" > "$UNIT"
 chmod 0644 "$UNIT"
 systemctl daemon-reload
-systemctl enable promptpulse.service
-systemctl restart promptpulse.service
+systemctl enable syslume.service
+systemctl restart syslume.service
+if [[ -e "$LEGACY_UNIT" ]]; then
+  systemctl disable --now promptpulse.service >/dev/null 2>&1 || true
+fi
 printf '\nInstalled as %s.\n' "$RUN_USER"
+if [[ "$MIGRATE_LEGACY" -eq 1 ]]; then
+  echo 'Migrated the existing PromptPulse configuration/history to SysLume; the legacy installation was left in place but disabled.'
+fi
 PORT=$(/usr/bin/python3 -B -c 'from pathlib import Path; from monitor import config_load; print(config_load(Path("config.json"))["port"])')
 if [[ "$INSTALL_BIND" == tailscale ]] && IP=$(tailscale ip -4 2>/dev/null | head -n1) && [[ -n "$IP" ]]; then
   printf 'Current: http://%s:%s/\nHistory: http://%s:%s/history\n' "$IP" "$PORT" "$IP" "$PORT"
@@ -100,4 +124,4 @@ elif [[ "$INSTALL_BIND" != tailscale ]]; then
 else
   echo 'The HTTP listener will wait for tailscale0. Sampling continues meanwhile.'
 fi
-printf '\nVerify: systemctl status promptpulse --no-pager\nLogs:   journalctl -u promptpulse -n 50 --no-pager\n'
+printf '\nVerify: systemctl status syslume --no-pager\nLogs:   journalctl -u syslume -n 50 --no-pager\n'

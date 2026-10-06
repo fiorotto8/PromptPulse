@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PromptPulse: private Linux host and optional NVIDIA monitoring."""
+"""SysLume: private Linux host and optional NVIDIA monitoring."""
 from __future__ import annotations
 
 import argparse
@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 APP_DIR = Path(__file__).resolve().parent
-LOG = logging.getLogger("promptpulse")
+LOG = logging.getLogger("syslume")
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
@@ -747,7 +747,7 @@ class MonitorServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PromptPulse"
+    server_version = "SysLume"
     sys_version = ""
     STATIC = {"/": ("current.html", "text/html"), "/history": ("history.html", "text/html"),
               "/static/style.css": ("style.css", "text/css"),

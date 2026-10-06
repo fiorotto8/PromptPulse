@@ -1,6 +1,6 @@
-# promptpulse managed unit
+# syslume managed unit
 [Unit]
-Description=PromptPulse private Linux performance dashboard
+Description=SysLume private Linux performance dashboard
 Wants=network-online.target tailscaled.service
 After=network-online.target tailscaled.service
 StartLimitIntervalSec=0
@@ -9,8 +9,8 @@ StartLimitIntervalSec=0
 Type=simple
 User=__USER__
 Group=__GROUP__
-WorkingDirectory=/opt/promptpulse
-ExecStart=/usr/bin/python3 -B /opt/promptpulse/monitor.py --config /opt/promptpulse/config.json
+WorkingDirectory=/opt/syslume
+ExecStart=/usr/bin/python3 -B /opt/syslume/monitor.py --config /opt/syslume/config.json
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20
@@ -29,7 +29,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-ReadWritePaths=/opt/promptpulse/data
+ReadWritePaths=/opt/syslume/data
 
 [Install]
 WantedBy=multi-user.target

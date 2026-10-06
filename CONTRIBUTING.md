@@ -1,6 +1,6 @@
-# Contributing to PromptPulse
+# Contributing to SysLume
 
-Thanks for helping improve PromptPulse.
+Thanks for helping improve SysLume.
 
 ## Simple workflow
 
@@ -8,8 +8,8 @@ Thanks for helping improve PromptPulse.
 2. Clone your fork and create a branch for your change:
 
    ```bash
-   git clone <YOUR-FORK-URL> PromptPulse
-   cd PromptPulse
+   git clone <YOUR-FORK-URL> SysLume
+   cd SysLume
    git switch -c describe-your-change
    ```
 
