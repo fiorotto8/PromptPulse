@@ -51,7 +51,10 @@ fi
 command -v systemctl >/dev/null || { echo 'systemd is required for this installer.' >&2; exit 1; }
 systemctl show-environment >/dev/null 2>&1 || { echo 'A running systemd system manager is required for this installer.' >&2; exit 1; }
 if [[ -e "$UNIT" ]]; then
-  grep -q '^# promptpulse managed unit' "$UNIT" || { echo "An unrelated $UNIT already exists. Refusing to overwrite it." >&2; exit 1; }
+  grep -q '^# syslume managed unit' "$UNIT" || { echo "An unrelated $UNIT already exists. Refusing to overwrite it." >&2; exit 1; }
+fi
+if [[ -e "$LEGACY_UNIT" ]]; then
+  grep -q '^# promptpulse managed unit' "$LEGACY_UNIT" || { echo "An unrelated $LEGACY_UNIT already exists. Refusing automatic migration." >&2; exit 1; }
 fi
 /usr/bin/python3 -B -m unittest discover -s tests -v
 # Migrate an existing PromptPulse installation only when SysLume has no database yet.
@@ -121,4 +124,4 @@ elif [[ "$INSTALL_BIND" != tailscale ]]; then
 else
   echo 'The HTTP listener will wait for tailscale0. Sampling continues meanwhile.'
 fi
-printf '\nVerify: systemctl status promptpulse --no-pager\nLogs:   journalctl -u promptpulse -n 50 --no-pager\n'
+printf '\nVerify: systemctl status syslume --no-pager\nLogs:   journalctl -u syslume -n 50 --no-pager\n'
