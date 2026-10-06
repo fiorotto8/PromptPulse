@@ -1,15 +1,15 @@
-# Set up PromptPulse on this machine
+# Set up SysLume on this machine
 
 Use this repository as the working application. Inspect this Linux host, configure
 the monitor for it, and install and verify the service. Hardware telemetry is optional.
 Prefer configuration; add a small collector when an available tool needs support.
 Keep the work and your responses concise.
-The installer copies the application to `/opt/promptpulse` and creates
-`promptpulse.service`. The checkout folder may have any name.
+The installer copies the application to `/opt/syslume` and creates
+`syslume.service`. The checkout folder may have any name.
 
 ## Inspect once
 
-Read `config.example.json`, `install.sh`, and `promptpulse.service`. Read the README
+Read `config.example.json`, `install.sh`, and `syslume.service`. Read the README
 for usage and only the relevant readers in `monitor.py` when adapting telemetry.
 Do not scan unrelated directories, dump hardware inventories, create
 planning/report files, or install extra tooling to perform routine checks.
@@ -22,11 +22,11 @@ sources appropriate to the detected hardware: for example `nvidia-smi`, Jetson's
 read-only probes as the normal service account; finding a binary is not proof that
 it supplies usable readings. Missing tools, GPU access, or sensors must not block
 host monitoring. Do not install drivers or telemetry packages automatically.
-Inspect any existing `/opt/promptpulse/config.json` and service before changing them.
+Inspect any existing `/opt/syslume/config.json` and service before changing them.
 
 ## Adapt available telemetry
 
-- Configure an existing reader first. PromptPulse prefers `nvidia-smi` and falls
+- Configure an existing reader first. SysLume prefers `nvidia-smi` and falls
   back to `tegrastats` for GPU index `0`; both executable paths default to `auto`.
 - If a useful installed source is unsupported, implement the smallest reader and
   parser in `monitor.py`, following the existing `sample()` values/status contract.
@@ -70,7 +70,7 @@ Inspect any existing `/opt/promptpulse/config.json` and service before changing 
 2. State the chosen network mode, service account, and any unavailable telemetry
    briefly. Run `sudo bash install.sh` using that normal account. If privileges are
    unavailable, give the exact command for the user; never ask for their password.
-3. Check `systemctl status promptpulse --no-pager` and recent service logs. Fetch
+3. Check `systemctl status syslume --no-pager` and recent service logs. Fetch
    `/api/current` using the exact private IP and port; verify a fresh host sample
    and readings from the selected telemetry source after its first interval.
    Check `/` and `/history`; use a browser if already available. For Tailscale, the
