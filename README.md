@@ -1,6 +1,6 @@
 # SysLume
 
-<p align="center"><img src="docs/syslume-logo.png" alt="SysLume logo" width="420"></p>
+<p align="center"><img src="docs/syslume-logo.png" alt="SysLume logo" width="200"></p>
 
 **A local Linux performance dashboard you install by telling your AI coding harness to do it.**
 
