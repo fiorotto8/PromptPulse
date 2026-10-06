@@ -1,10 +1,12 @@
-# PromptPulse
+# SysLume
+
+<p align="center"><img src="docs/syslume-logo.png" alt="SysLume logo" width="420"></p>
 
 **A local Linux performance dashboard you install by telling your AI coding harness to do it.**
 
 Clone it. Give your coding agent [one setup prompt](SETUP_PROMPT.md). Open your dashboard.
 The agent inspects your machine, configures the existing application, and verifies
-installation. Once installed, PromptPulse runs independently of the agent.
+installation. Once installed, SysLume runs independently of the agent.
 
 - **See your host:** CPU, memory, storage, network, and optional NVIDIA GPU telemetry.
 - **Explore real history:** interactive charts, zoom, and 30 days of local measurements.
@@ -20,15 +22,15 @@ Machine-specific settings live in ignored `config.json`; the application stays r
 1. Clone this repository using its GitHub **Code** URL, then enter the directory:
 
    ```bash
-   git clone <REPOSITORY-URL> PromptPulse
-   cd PromptPulse
+   git clone <REPOSITORY-URL> SysLume
+   cd SysLume
    ```
 
    A downloaded ZIP works too: extract it and open the extracted project directory.
 
 2. Open Claude Code, Codex, Pi, or another coding agent in that directory and say:
 
-   > Read SETUP_PROMPT.md and set up PromptPulse on this machine. Prefer configuration over code changes.
+   > Read SETUP_PROMPT.md and set up SysLume on this machine. Prefer configuration over code changes.
 
 3. The agent checks the host, prepares local configuration, runs tests, installs
    the service, and gives you the private dashboard URL. It asks about network mode
@@ -73,13 +75,13 @@ sudo bash install.sh
 ```
 
 The installer validates configuration and runs the tests before replacing application
-files. It copies the application into `/opt/promptpulse`, creates `promptpulse.service`,
+files. It copies the application into `/opt/syslume`, creates `syslume.service`,
 and runs as the account that invoked `sudo`. The installed service is independent
 of the checkout: the folder may have any name and can be moved after installation.
 For another existing normal account, use `sudo MONITOR_USER=myuser bash install.sh`.
 
 On first installation, your source `config.json` is used, or the example if none
-exists. On upgrades, `/opt/promptpulse/config.json` takes precedence and existing
+exists. On upgrades, `/opt/syslume/config.json` takes precedence and existing
 data is preserved. Edit that installed configuration to change a running service.
 The installer does not install drivers, packages, or Tailscale, or change firewall
 rules, GPU clocks, or power limits.
@@ -149,16 +151,16 @@ and add small, tested readers when needed, preserving the schema and dependencie
 History supports range presets, custom ranges, pan, drag-to-zoom, Ctrl+wheel zoom,
 and reset. Long ranges retain mean/minimum/maximum values so peaks remain visible.
 
-After editing `/opt/promptpulse/config.json`:
+After editing `/opt/syslume/config.json`:
 
 ```bash
-sudo systemctl restart promptpulse
-systemctl status promptpulse --no-pager
-journalctl -u promptpulse -n 50 --no-pager
+sudo systemctl restart syslume
+systemctl status syslume --no-pager
+journalctl -u syslume -n 50 --no-pager
 ```
 
-Use `sudo systemctl stop promptpulse` or `sudo systemctl start promptpulse` to stop
-or start it. Its database is at `/opt/promptpulse/data/monitor.db`.
+Use `sudo systemctl stop syslume` or `sudo systemctl start syslume` to stop
+or start it. Its database is at `/opt/syslume/data/monitor.db`.
 
 ## Test and contribute
 
